@@ -19,7 +19,7 @@ test.describe('Settings', () => {
     await page.getByRole('menuitem', { name: 'Settings' }).click();
 
     await expect(page.getByText('FreqUI Settings')).toBeVisible();
-    await expect(page.url()).toBe('http://localhost:3000/settings');
+    await expect(page.url()).toBe('http://localhost:8080/settings');
 
     // Switch option in the settings.
     await page.getByRole('combobox').filter({ hasText: 'Show pill in icon' }).click();

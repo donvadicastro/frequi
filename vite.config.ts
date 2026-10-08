@@ -115,12 +115,13 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8080',
+        target: process.env.FREQTRADE_API_URL || 'http://127.0.0.1:8081',
         changeOrigin: true,
       },
     },
     host: '127.0.0.1',
-    port: 3000,
+    port: 8080,
+    strictPort: true,
   },
   test: {
     environment: 'happy-dom',

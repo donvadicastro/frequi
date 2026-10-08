@@ -119,7 +119,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div>
+  <div class="portfolio-view">
     <div class="flex flex-wrap flex-row mb-2 justify-end items-center">
       <label class="text-xl ms-1 me-auto mb-0">{{ showBotOnly ? 'Bot' : 'Account' }} Balance</label>
       <div class="flex flex-row gap-1">
@@ -139,12 +139,77 @@ onMounted(() => {
         <UButton color="neutral" icon="mdi:refresh" @click="refreshBalance" />
       </div>
     </div>
-    <BalanceChart v-if="balanceCurrencies" :currencies="chartValues" />
-    <div>
-      <p v-if="botStore.activeBot.balance.note">
-        <strong>{{ botStore.activeBot.balance.note }}</strong>
-      </p>
-      <UTable :data="tableData" :columns="tableColumns" />
+    <div class="portfolio-layout">
+      <section class="allocation-panel" aria-label="Balance allocation">
+        <h3>Allocation</h3>
+        <BalanceChart :currencies="chartValues" :show-title="false" compact />
+      </section>
+      <section class="holdings-panel" aria-label="Portfolio holdings">
+        <p v-if="botStore.activeBot.balance.note">
+          <strong>{{ botStore.activeBot.balance.note }}</strong>
+        </p>
+        <UTable :data="tableData" :columns="tableColumns" />
+      </section>
     </div>
   </div>
 </template>
+
+<style scoped>
+.portfolio-view {
+  max-width: 1120px;
+  margin: 0 auto;
+  text-align: left;
+}
+.portfolio-layout {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 0;
+  align-items: stretch;
+  margin-top: 18px;
+  border: 1px solid var(--ui-border);
+  border-radius: 12px;
+  background: var(--ui-bg);
+  overflow: hidden;
+}
+.allocation-panel,
+.holdings-panel {
+  min-width: 0;
+}
+.allocation-panel {
+  padding: 18px 12px;
+  border-right: 1px solid var(--ui-border);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.allocation-panel :deep(.echarts) {
+  width: 100%;
+  max-width: 280px;
+}
+.allocation-panel h3 {
+  margin: 0 4px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ui-text-highlighted);
+}
+.holdings-panel {
+  overflow-x: auto;
+}
+.holdings-panel > p {
+  padding: 14px 16px;
+  font-size: 12px;
+  color: var(--ui-text-muted);
+}
+@media (max-width: 760px) {
+  .portfolio-layout {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .allocation-panel {
+    width: 100%;
+    border-right: 0;
+    border-bottom: 1px solid var(--ui-border);
+    align-items: center;
+  }
+}
+</style>

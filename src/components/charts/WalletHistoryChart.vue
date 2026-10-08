@@ -50,6 +50,8 @@ const props = withDefaults(
 );
 
 const settingsStore = useSettingsStore();
+const route = useRoute();
+const chartTheme = computed(() => (route.path === '/' ? 'light' : settingsStore.chartTheme));
 const legendSelection = ref<Record<string, boolean>>({});
 
 // vue-echarts types all chart event payloads as `unknown`.
@@ -78,10 +80,10 @@ const walletHistoryOptions: ComputedRef<EChartsOption> = computed(() => {
   const legendData: string[] = [];
   const selectedBotIds = walletEntries
     .map(([botId]) => botId)
-    .filter((botId) => legendSelection.value[botId] ?? true);
+    .filter((botId) => legendSelection.value[props.walletData[botId]?.botName ?? botId] ?? true);
   const useProfitLossVisualMap = selectedBotIds.length === 1;
   const selectedBotId = selectedBotIds[0];
-  const captureLineColor = settingsStore.chartTheme === 'dark' ? '#c2c2c2' : '#4b5563';
+  const captureLineColor = chartTheme.value === 'dark' ? '#c2c2c2' : '#4b5563';
 
   walletEntries.forEach(([botId, history], botIndex) => {
     const botName = history.botName ?? botId;
@@ -247,6 +249,8 @@ const walletHistoryOptions: ComputedRef<EChartsOption> = computed(() => {
     dataset,
     tooltip: {
       trigger: 'axis',
+      appendTo: 'body',
+      confine: false,
       axisPointer: {
         type: 'line',
         label: {
@@ -341,7 +345,7 @@ const walletHistoryOptions: ComputedRef<EChartsOption> = computed(() => {
   <ECharts
     v-if="hasWalletData"
     :option="walletHistoryOptions"
-    :theme="settingsStore.chartTheme"
+    :theme="chartTheme"
     @legendselectchanged="handleLegendSelectChanged"
     autoresize
   />

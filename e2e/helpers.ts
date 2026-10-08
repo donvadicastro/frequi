@@ -8,7 +8,7 @@ export async function setLoginInfo(page: Page) {
       JSON.stringify({
         'ftbot.0': {
           botName: 'TestBot',
-          apiUrl: 'http://localhost:3000',
+          apiUrl: 'http://localhost:8080',
           accessToken: 'access_token_tesst',
           refreshToken: 'refresh_test',
           autoRefresh: true,
