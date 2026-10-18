@@ -148,6 +148,9 @@ watch(
     <div v-else-if="!groups.length" class="history-panel history-empty">
       Waiting for the bots to report their stake currencies.
     </div>
+    <div v-for="group in groups" :key="`holdings-${group.currency}`" class="history-panel">
+      <HoldingsHistoryChart :bots="group.members" :currency="group.currency" />
+    </div>
     <BotBalance v-if="botId" class="current-holdings" />
     <slot />
   </div>

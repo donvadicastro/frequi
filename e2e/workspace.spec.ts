@@ -119,3 +119,66 @@ test('Portfolio activity sits below balances and loads ten older events at a tim
   await expect(activity.getByRole('article')).toHaveCount(12);
   await expect(activity.getByRole('button', { name: 'Load more', exact: true })).not.toBeVisible();
 });
+
+test('Portfolio holdings chart stacks cash and assets to one hundred percent', async ({ page }) => {
+  await defaultMocks(page);
+  await tradeMocks(page);
+  const firstFill = Date.UTC(2026, 9, 9);
+  await page.route('**/api/v1/trades*', (route) =>
+    route.fulfill({
+      json: {
+        total_trades: 2,
+        trades: ['BTC', 'ETH'].map((asset, index) => ({
+          trade_id: index + 1,
+          strategy: 'SampleStrategy',
+          pair: `${asset}/USDT`,
+          is_open: true,
+          amount: 1,
+          open_rate: index ? 500 : 300,
+          open_timestamp: firstFill,
+          open_fill_timestamp: firstFill,
+          orders: [
+            {
+              order_id: `${asset}-buy`,
+              ft_order_side: 'buy',
+              ft_is_entry: true,
+              filled: 1,
+              safe_price: index ? 500 : 300,
+              cost: index ? 500 : 300,
+              order_filled_timestamp: firstFill,
+            },
+          ],
+        })),
+      },
+    }),
+  );
+  await page.route(/\/api\/v1\/pair_(?:history|candles)(?:\?|$)/, (route) => {
+    const payload =
+      route.request().method() === 'POST'
+        ? route.request().postDataJSON()
+        : Object.fromEntries(new URL(route.request().url()).searchParams);
+    return route.fulfill({
+      json: {
+        pair: payload.pair,
+        columns: ['__date_ts', 'close'],
+        timeframe_ms: 3600000,
+        data: Array.from({ length: 73 }, (_, index) => [
+          firstFill + (index - 1) * 3600000,
+          payload.pair.startsWith('BTC') ? (index > 24 && index < 49 ? 500 : 300) : 500,
+        ]),
+      },
+    });
+  });
+  await setLoginInfo(page);
+  await page.reload();
+  await page.getByRole('button', { name: /TestBot/ }).click();
+  await page.getByRole('button', { name: 'Portfolio', exact: true }).click();
+  const chart = page.getByRole('region', { name: 'Holdings allocation over time' });
+  await expect(chart.getByRole('heading', { name: 'Holdings over time' })).toBeVisible();
+  await expect(chart.locator('canvas')).toHaveCount(1);
+  const allocation = chart.getByRole('list', { name: 'Latest allocation percentages' });
+  await expect(allocation).toContainText('USDT (cash): 20.00%');
+  await expect(allocation).toContainText('BTC: 30.00%');
+  await expect(allocation).toContainText('ETH: 50.00%');
+  await expect(chart.getByText(/Each point totals 100%/)).toBeVisible();
+});

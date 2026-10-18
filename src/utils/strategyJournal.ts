@@ -10,6 +10,7 @@ export interface ExecutionImpact {
   cashBefore?: number;
   cashAfter?: number;
   notional: number;
+  fillPrice: number;
   /** Gross spot cash flow; excludes fees. Futures margin is not notional. */
   cashFlow?: number;
   isShort: boolean;
@@ -78,6 +79,7 @@ export function tradeJournal(
         positionAfter: position,
         positionNow: !trade.is_open ? 0 : Number.isFinite(trade.amount) ? trade.amount : undefined,
         notional,
+        fillPrice: order.safe_price,
         cashFlow:
           (trade.trading_mode && trade.trading_mode !== 'spot') ||
           trade.is_short ||

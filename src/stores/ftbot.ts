@@ -405,6 +405,34 @@ export function createBotSubStore(botId: string, botName: string) {
       }
     }
 
+    /** Read historical closes without changing the interactive chart's candle state. */
+    async function getAllocationCandles(pair: string, timerange: string): Promise<PairHistory> {
+      const payload = {
+        pair,
+        timerange,
+        timeframe: timeframe.value || '1h',
+        strategy: botState.value.strategy,
+      };
+      // Running bots expose their analysed candle cache; disk-history analysis
+      // is restricted to webserver mode by Freqtrade.
+      if (!isWebserverMode.value) {
+        const candles = { pair, timeframe: payload.timeframe, limit: 10000 };
+        return botFeatures.value.reducedPairCalls
+          ? api<PairHistory>('/pair_candles', {
+              method: 'POST',
+              body: { ...candles, columns: ['__date_ts', 'close'] },
+            })
+          : api<PairHistory>('/pair_candles', { query: candles });
+      }
+      return botFeatures.value.reducedPairCalls
+        ? api<PairHistory>('/pair_history', {
+            method: 'POST',
+            body: { ...payload, columns: ['__date_ts', 'close'], live_mode: false },
+            timeout: 120000,
+          })
+        : api<PairHistory>('/pair_history', { query: payload, timeout: 120000 });
+    }
+
     async function getPairHistory(payload: PairHistoryPayload) {
       if (payload.pair && payload.timeframe) {
         historyStatus.value = LoadingStatus.loading;
@@ -1594,6 +1622,7 @@ export function createBotSubStore(botId: string, botName: string) {
       deleteLock,
       getPairCandles,
       getPairHistory,
+      getAllocationCandles,
       getStrategyPlotConfig,
       getStrategyList,
       getStrategy,
