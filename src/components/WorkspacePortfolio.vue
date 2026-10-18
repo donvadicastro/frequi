@@ -149,6 +149,7 @@ watch(
       Waiting for the bots to report their stake currencies.
     </div>
     <BotBalance v-if="botId" class="current-holdings" />
+    <slot />
   </div>
 </template>
 

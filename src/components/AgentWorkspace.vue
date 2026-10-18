@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useStorage } from '@vueuse/core';
+import { tradeJournal } from '@/utils/strategyJournal';
 import { defineComponent, h, type Component } from 'vue';
 import WorkspaceIcon0 from '~icons/mdi/account-multiple-outline';
 import WorkspaceIcon1 from '~icons/mdi/chart-box-outline';
@@ -61,6 +62,38 @@ const active = computed(() =>
 const title = computed(() => active.value?.uiBotName || 'agent-commons');
 const visibleMessages = computed(() =>
   messages.value.filter((message) => message.space === space.value),
+);
+const activityLimit = ref(10);
+const activityError = ref('');
+const activityBots = computed(() => (active.value ? [active.value] : bots.allBotStores));
+const activityPosts = computed(() =>
+  activityBots.value
+    .flatMap((bot) =>
+      [
+        ...tradeJournal(bot.allTrades, bot.balance.starting_capital, bot.stakeCurrency),
+        ...bot.journalPosts,
+      ].map((post) => ({
+        ...post,
+        key: `${bot.botId}:${post.id}`,
+        botName: bot.uiBotName,
+      })),
+    )
+    .sort((a, b) => b.timestamp - a.timestamp || b.key.localeCompare(a.key)),
+);
+const shownActivity = computed(() => activityPosts.value.slice(0, activityLimit.value));
+watch(
+  [space, () => bots.botCount],
+  async () => {
+    activityLimit.value = 10;
+    activityError.value = '';
+    const result = await Promise.allSettled(
+      activityBots.value.flatMap((bot) => [bot.getTrades(), bot.getBalance()]),
+    );
+    if (result.some((item) => item.status === 'rejected')) {
+      activityError.value = 'Some trade history could not be loaded. Showing available events.';
+    }
+  },
+  { immediate: true },
 );
 const currencies = computed(() => [
   ...new Set(bots.allBotStores.map((bot) => bot.stakeCurrency).filter(Boolean)),
@@ -145,6 +178,9 @@ watch(
       </button>
       <RouterLink to="/dashboard" class="space-button"
         ><WorkspaceIcon name="i-mdi-chart-box-outline" /> Overview</RouterLink
+      >
+      <RouterLink to="/strategy_journal" class="space-button"
+        ><WorkspaceIcon name="i-mdi-message-text-outline" /> Strategy journal</RouterLink
       >
       <div class="section-label agent-label">
         STRATEGY AGENTS <span>{{ bots.botCount }}</span
@@ -298,13 +334,13 @@ watch(
             <p>
               {{
                 active
-                  ? 'Discuss this strategy here. Switch tabs to inspect its charts, open orders, and portfolio independently.'
+                  ? 'Follow executions, recorded reasons, and signal updates in the Portfolio tab.'
                   : 'Keep the big picture in view. Each strategy has its own space, while agent-commons brings the whole portfolio together.'
               }}
             </p>
             <div class="welcome-note">
-              <WorkspaceIcon name="i-mdi-information-outline" /> Messages are personal notes stored
-              in this browser. Agents do not respond automatically.
+              <WorkspaceIcon name="i-mdi-information-outline" /> Strategy activity is in Portfolio.
+              Messages here are personal notes saved in this browser.
             </div>
             <RouterLink v-if="!bots.hasBots" to="/login" class="getting-started"
               >Connect your first strategy <span>→</span></RouterLink
@@ -355,7 +391,44 @@ watch(
         </form>
       </div>
       <section v-else-if="tab === 'Portfolio'" :key="space + tab" class="agent-content">
-        <WorkspacePortfolio :bot-id="active ? space : undefined" />
+        <WorkspacePortfolio :bot-id="active ? space : undefined">
+          <section class="strategy-activity" aria-label="Strategy activity">
+            <div
+              class="activity-heading flex flex-wrap flex-row mb-2 justify-end items-center gap-2"
+            >
+              <h2 class="text-xl font-normal ms-1 me-auto mb-0">
+                Strategy Activity
+                <span class="text-xs text-muted ms-2">{{ activityPosts.length }} events</span>
+              </h2>
+              <RouterLink to="/strategy_journal">Search and export history →</RouterLink>
+            </div>
+            <p class="activity-caption">
+              Newest first · UTC · Trade reasons come from recorded tags. Signal updates are saved
+              in this browser while connected.
+            </p>
+            <p v-if="activityError" class="activity-caption">{{ activityError }}</p>
+            <p v-if="activityBots.some((bot) => bot.journalStorageError)" class="activity-caption">
+              Browser storage is unavailable. Export history to preserve live posts.
+            </p>
+            <p v-if="!activityPosts.length" class="activity-empty">
+              No recorded fills or strategy updates yet. Threshold alerts appear when the strategy
+              sends them. <RouterLink to="/strategy_journal">View setup instructions →</RouterLink>
+            </p>
+            <StrategyActivityRow
+              v-for="post in shownActivity"
+              :key="post.key"
+              :post="post"
+              :author="active ? undefined : post.botName"
+            />
+            <button
+              v-if="activityPosts.length > activityLimit"
+              class="activity-more"
+              @click="activityLimit += 10"
+            >
+              Load more
+            </button>
+          </section>
+        </WorkspacePortfolio>
       </section>
       <section v-else-if="active" :key="space + tab" class="agent-content">
         <ChartView v-if="tab === 'Charts'" /><MobileTradesList v-else-if="tab === 'Orders'" />
@@ -814,6 +887,33 @@ watch(
   font-size: 10px;
   font-weight: 400;
   color: #9ba1b0;
+}
+.strategy-activity {
+  margin-top: 28px;
+  margin-bottom: 24px;
+}
+.activity-heading a,
+.activity-empty a {
+  color: #5267b5;
+  font-size: 12px;
+}
+.activity-caption,
+.activity-empty {
+  color: #858c9d;
+  font-size: 11px;
+  line-height: 1.8;
+  margin-bottom: 10px;
+}
+.activity-more {
+  display: inline-block;
+  padding: 0;
+  margin-top: 8px;
+  font-size: 11px;
+  color: #5267b5;
+  cursor: pointer;
+}
+.activity-more:hover {
+  text-decoration: underline;
 }
 .composer {
   margin-top: auto;

@@ -1,5 +1,6 @@
 export enum FtWsMessageTypes {
   exception = 'exception',
+  strategyMessage = 'strategy_msg',
 
   whitelist = 'whitelist',
   entryFill = 'entry_fill',
@@ -59,7 +60,13 @@ export interface FtErrorMessage extends FtBaseWsMessage {
   data: string;
 }
 
+export interface FtStrategyMessage extends FtBaseWsMessage {
+  type: FtWsMessageTypes.strategyMessage;
+  msg: string;
+}
+
 export type FTWsMessage =
+  | FtStrategyMessage
   | FtErrorMessage
   | FtWhitelistMessage
   | FtEntryFillMessage

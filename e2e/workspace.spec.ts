@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { defaultMocks, setLoginInfo } from './helpers';
+import { defaultMocks, setLoginInfo, tradeMocks } from './helpers';
 
 test('Workspace notes stay in their strategy space and survive reload', async ({ page }) => {
   const errors: string[] = [];
@@ -56,4 +56,66 @@ test('Returning from a dark dashboard keeps workspace orders light', async ({ pa
   await page.getByRole('button', { name: 'Orders', exact: true }).click();
   await expect(page.locator('html')).not.toHaveClass(/dark/);
   await expect(page.getByRole('heading', { name: /Open trades/ })).toBeVisible();
+});
+
+test('Portfolio activity sits below balances and loads ten older events at a time', async ({
+  page,
+}) => {
+  await defaultMocks(page);
+  await tradeMocks(page);
+  const firstFill = Date.UTC(2026, 9, 9, 1);
+  await page.route('**/api/v1/trades*', (route) =>
+    route.fulfill({
+      json: {
+        total_trades: 1,
+        trades: [
+          {
+            trade_id: 1,
+            strategy: 'SampleStrategy',
+            pair: 'BTC/USDT',
+            is_open: true,
+            amount: 12,
+            open_rate: 10,
+            open_timestamp: firstFill,
+            open_fill_timestamp: firstFill,
+            orders: Array.from({ length: 12 }, (_, index) => ({
+              order_id: `fill-${index}`,
+              ft_order_side: 'buy',
+              ft_is_entry: true,
+              filled: 1,
+              safe_price: 10,
+              cost: 10,
+              order_filled_timestamp: firstFill + index * 1000,
+            })),
+          },
+        ],
+      },
+    }),
+  );
+  await setLoginInfo(page);
+  await page.reload();
+  await page.getByRole('button', { name: /TestBot/ }).click();
+  const activity = page.getByRole('region', { name: 'Strategy activity' });
+  await expect(activity).not.toBeVisible();
+  await page.getByRole('button', { name: 'Portfolio', exact: true }).click();
+  await expect(page.getByText('Bot Balance', { exact: true })).toBeVisible();
+  await expect(activity.getByRole('article')).toHaveCount(10);
+  await expect(activity.locator('time').first()).toHaveAttribute(
+    'datetime',
+    new Date(firstFill + 11000).toISOString(),
+  );
+  await expect(activity.locator('details')).toHaveCount(0);
+  const balance = page.locator('.current-holdings');
+  expect(
+    await balance.evaluate((element) =>
+      Boolean(
+        element.compareDocumentPosition(
+          document.querySelector('[aria-label="Strategy activity"]')!,
+        ) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ),
+  ).toBe(true);
+  await activity.getByRole('button', { name: 'Load more', exact: true }).click();
+  await expect(activity.getByRole('article')).toHaveCount(12);
+  await expect(activity.getByRole('button', { name: 'Load more', exact: true })).not.toBeVisible();
 });

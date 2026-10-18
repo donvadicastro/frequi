@@ -67,7 +67,8 @@ import type {
 import { BacktestSteps, LoadingStatus, RunModes, TimeSummaryOptions } from '@/types';
 import type { FTWsMessage } from '@/types/wsMessageTypes';
 import { FtWsMessageTypes } from '@/types/wsMessageTypes';
-import { useWebSocket } from '@vueuse/core';
+import { useStorage, useWebSocket } from '@vueuse/core';
+import { strategyMessagePost, type StrategyPost } from '@/utils/strategyJournal';
 
 import { evaluateFeatures } from '@/utils/features';
 
@@ -78,6 +79,21 @@ export function createBotSubStore(botId: string, botName: string) {
   const { showAlert } = useAlertForBot(botName);
 
   const useBotStore = defineStore(botId, () => {
+    const journalStorageError = ref(false);
+    const journalPosts = useStorage<StrategyPost[]>(
+      computed(() => `strategy-journal:${loginInfo.baseUrl.value}`),
+      [],
+      undefined,
+      {
+        onError: () => {
+          journalStorageError.value = true;
+        },
+      },
+    );
+    function recordJournalPost(post: StrategyPost) {
+      if (journalPosts.value.some((item) => item.id === post.id)) return;
+      journalPosts.value = [...journalPosts.value, post];
+    }
     const isSelected = ref(true);
     const ping = ref('');
     const botStatusAvailable = ref(false);
@@ -1356,6 +1372,17 @@ export function createBotSubStore(botId: string, botName: string) {
     function _handleWebsocketMessage(ws: WebSocket, event: MessageEvent<string>) {
       const msg: FTWsMessage = JSON.parse(event.data);
       switch (msg.type) {
+        case FtWsMessageTypes.strategyMessage:
+          if (typeof msg.msg === 'string') {
+            recordJournalPost(
+              strategyMessagePost(
+                msg.msg,
+                botState.value.strategy || 'Unknown strategy',
+                Date.now(),
+              ),
+            );
+          }
+          break;
         case FtWsMessageTypes.exception:
           showAlert(`WSException: ${msg.data}`, 'error');
           break;
@@ -1366,6 +1393,30 @@ export function createBotSubStore(botId: string, botName: string) {
         case FtWsMessageTypes.exitFill:
         case FtWsMessageTypes.exitCancel:
         case FtWsMessageTypes.entryCancel:
+          if (
+            msg.type === FtWsMessageTypes.entryCancel ||
+            msg.type === FtWsMessageTypes.exitCancel
+          ) {
+            const receivedAt = Date.now();
+            recordJournalPost({
+              id: `cancel:${crypto.randomUUID()}`,
+              strategy: botState.value.strategy || 'Unknown strategy',
+              pair: msg.pair,
+              timestamp: receivedAt,
+              receivedAt,
+              kind: 'cancellation',
+              title:
+                msg.type === FtWsMessageTypes.entryCancel
+                  ? 'Entry order cancelled'
+                  : 'Exit order cancelled',
+              message: msg.reason || 'No cancellation reason supplied',
+              source: 'live event',
+            });
+          }
+          void getOpenTrades();
+          void getTrades().catch(() => {
+            /* Normal refresh will retry. */
+          });
           showNotification(msg, botName);
           break;
         case FtWsMessageTypes.newCandle: {
@@ -1416,6 +1467,7 @@ export function createBotSubStore(botId: string, botName: string) {
             if (isWebserverMode.value !== true) {
               websocketStarted.value = true;
               const subscriptions = [
+                FtWsMessageTypes.strategyMessage,
                 FtWsMessageTypes.whitelist,
                 FtWsMessageTypes.entryFill,
                 FtWsMessageTypes.exitFill,
@@ -1448,6 +1500,8 @@ export function createBotSubStore(botId: string, botName: string) {
     // #endregion websocket handling
 
     return {
+      journalPosts,
+      journalStorageError,
       websocketStarted,
       isSelected,
       ping,
