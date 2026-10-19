@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { defaultMocks, setLoginInfo, tradeMocks } from './helpers';
+import configFixture from './testData/show_config.json' with { type: 'json' };
 
 test('Workspace notes stay in their strategy space and survive reload', async ({ page }) => {
   const errors: string[] = [];
@@ -181,4 +182,54 @@ test('Portfolio holdings chart stacks cash and assets to one hundred percent', a
   await expect(allocation).toContainText('BTC: 30.00%');
   await expect(allocation).toContainText('ETH: 50.00%');
   await expect(chart.getByText(/Each point totals 100%/)).toBeVisible();
+});
+
+test('Sidebar separates live and dry-run strategies and remembers collapsed groups', async ({
+  page,
+}) => {
+  await defaultMocks(page);
+  await page.route('**/api/v1/show_config', (route) => {
+    if (route.request().url().includes('/unknown/')) return route.fulfill({ json: {} });
+    const live = route.request().url().includes('/live/');
+    return route.fulfill({
+      json: { ...configFixture, dry_run: !live, runmode: live ? 'live' : 'dry_run' },
+    });
+  });
+  await setLoginInfo(page);
+  await page.evaluate(() => {
+    const info = JSON.parse(localStorage.getItem('ftAuthLoginInfo')!);
+    info['ftbot.1'] = {
+      ...info['ftbot.0'],
+      botName: 'LiveBot',
+      apiUrl: 'http://localhost:8080/live',
+    };
+    info['ftbot.2'] = {
+      ...info['ftbot.0'],
+      botName: 'UnknownBot',
+      apiUrl: 'http://localhost:8080/unknown',
+    };
+    localStorage.setItem('ftAuthLoginInfo', JSON.stringify(info));
+  });
+  await page.reload();
+  const live = page.locator('details[data-mode="live"]');
+  const dryRun = page.locator('details[data-mode="dry_run"]');
+  await expect(live.getByRole('button', { name: /LiveBot/ })).toBeVisible();
+  await expect(dryRun.getByRole('button', { name: /TestBot/ })).toBeVisible();
+  await expect(live.getByRole('button', { name: /TestBot/ })).toHaveCount(0);
+  await expect(dryRun.getByRole('button', { name: /LiveBot/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /UnknownBot Mode unavailable/ })).toBeVisible();
+  await expect(live.getByRole('button', { name: /UnknownBot/ })).toHaveCount(0);
+  await expect(dryRun.getByRole('button', { name: /UnknownBot/ })).toHaveCount(0);
+  await live.locator('summary').click();
+  await expect(live.getByRole('button', { name: /LiveBot/ })).not.toBeVisible();
+  await expect(dryRun.getByRole('button', { name: /TestBot/ })).toBeVisible();
+  await page.reload();
+  await expect(dryRun.getByRole('button', { name: /TestBot/ })).toBeVisible();
+  await expect(live).toHaveJSProperty('open', false);
+  await page.getByRole('textbox', { name: 'Find an agent' }).fill('LiveBot');
+  await expect(live.getByRole('button', { name: /LiveBot/ })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Find an agent' }).clear();
+  await expect(live).toHaveJSProperty('open', false);
+  await live.locator('summary').click();
+  await expect(live.getByRole('button', { name: /LiveBot/ })).toBeVisible();
 });

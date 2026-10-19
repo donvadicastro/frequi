@@ -16,6 +16,7 @@ import WorkspaceIcon10 from '~icons/mdi/send';
 import WorkspaceIcon11 from '~icons/mdi/swap-horizontal';
 import WorkspaceIcon12 from '~icons/mdi/view-dashboard-outline';
 import WorkspaceIcon13 from '~icons/mdi/wallet-outline';
+import GroupChevronIcon from '~icons/mdi/chevron-right';
 const workspaceIcons: Record<string, Component> = {
   'i-mdi-account-multiple-outline': WorkspaceIcon0,
   'i-mdi-chart-box-outline': WorkspaceIcon1,
@@ -56,6 +57,43 @@ const agents = computed(() =>
     bot.botName.toLowerCase().includes(search.value.toLowerCase()),
   ),
 );
+const expandedGroups = useStorage<Record<string, boolean>>(
+  'frequi-workspace-agent-groups',
+  { live: true, dry_run: true },
+  undefined,
+  { flush: 'sync' },
+);
+const searchGroups = ref<Record<string, boolean>>({});
+watch(search, () => {
+  searchGroups.value = {};
+});
+function isGroupExpanded(key: string) {
+  return search.value.trim() ? (searchGroups.value[key] ?? true) : expandedGroups.value[key];
+}
+function agentMode(botId: string): 'live' | 'dry_run' | 'unknown' {
+  const config = bots.botStores[botId]?.botState;
+  if (config?.runmode === 'webserver' || typeof config?.dry_run !== 'boolean') return 'unknown';
+  return config.dry_run ? 'dry_run' : 'live';
+}
+const agentGroups = computed(() => [
+  {
+    key: 'live',
+    label: 'Live',
+    agents: agents.value.filter((bot) => agentMode(bot.botId) === 'live'),
+  },
+  {
+    key: 'dry_run',
+    label: 'Dry-run',
+    agents: agents.value.filter((bot) => agentMode(bot.botId) === 'dry_run'),
+  },
+]);
+const pendingAgents = computed(() =>
+  agents.value.filter((bot) => agentMode(bot.botId) === 'unknown'),
+);
+function toggleGroup(key: string) {
+  if (search.value.trim()) searchGroups.value[key] = !isGroupExpanded(key);
+  else expandedGroups.value[key] = !isGroupExpanded(key);
+}
 const active = computed(() =>
   space.value === 'commons' ? undefined : bots.botStores[space.value],
 );
@@ -186,8 +224,41 @@ watch(
         STRATEGY AGENTS <span>{{ bots.botCount }}</span
         ><RouterLink to="/login" aria-label="Connect agent">+</RouterLink>
       </div>
+      <details
+        v-for="group in agentGroups"
+        :key="group.key"
+        class="agent-group"
+        :data-mode="group.key"
+        :aria-label="`${group.label} strategies`"
+        :open="isGroupExpanded(group.key)"
+      >
+        <summary class="group-heading" @click.prevent="toggleGroup(group.key)">
+          <span class="mode-dot" :class="group.key" aria-hidden="true" />
+          <span>{{ group.label }}</span>
+          <span class="group-count">{{ group.agents.length }}</span>
+          <GroupChevronIcon class="group-chevron" aria-hidden="true" />
+        </summary>
+        <button
+          v-for="bot in group.agents"
+          :key="bot.botId"
+          class="space-button agent-button"
+          :class="{ current: space === bot.botId }"
+          @click="selectSpace(bot.botId)"
+        >
+          <span class="agent-avatar">{{ bot.botName.slice(0, 2).toUpperCase() }}</span
+          ><span class="agent-name"
+            >{{ bot.botName
+            }}<small>{{
+              bots.botStores[bot.botId]?.botState.strategy || 'Strategy agent'
+            }}</small></span
+          ><span class="status-dot" :class="{ online: bots.botStores[bot.botId]?.isBotOnline }" />
+        </button>
+        <p v-if="!group.agents.length && agents.length" class="group-empty">
+          No {{ group.label.toLowerCase() }} strategies
+        </p>
+      </details>
       <button
-        v-for="bot in agents"
+        v-for="bot in pendingAgents"
         :key="bot.botId"
         class="space-button agent-button"
         :class="{ current: space === bot.botId }"
@@ -197,7 +268,7 @@ watch(
         ><span class="agent-name"
           >{{ bot.botName
           }}<small>{{
-            bots.botStores[bot.botId]?.botState.strategy || 'Strategy agent'
+            bots.botStores[bot.botId]?.isWebserverMode ? 'Backtest server' : 'Mode unavailable'
           }}</small></span
         ><span class="status-dot" :class="{ online: bots.botStores[bot.botId]?.isBotOnline }" />
       </button>
@@ -597,6 +668,61 @@ watch(
   background: #e8eaf1;
   padding: 2px 5px;
   border-radius: 4px;
+}
+.agent-group {
+  margin-bottom: 6px;
+}
+.group-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 11px;
+  font-weight: 600;
+  color: #687187;
+  border-radius: 6px;
+}
+.group-heading::-webkit-details-marker {
+  display: none;
+}
+.group-heading:hover {
+  background: #e8eaf3;
+}
+.group-heading:focus-visible {
+  outline: 2px solid #637acb;
+  outline-offset: 2px;
+}
+.mode-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.mode-dot.live {
+  background: #d46d55;
+}
+.mode-dot.dry_run {
+  background: #8b95b5;
+}
+.group-count {
+  font-size: 10px;
+  font-weight: 400;
+  color: #9299ab;
+}
+.group-chevron {
+  width: 14px;
+  height: 14px;
+  margin-left: auto;
+}
+.agent-group[open] .group-chevron {
+  transform: rotate(90deg);
+}
+.group-empty {
+  padding: 4px 12px 10px 26px;
+  font-size: 10px;
+  color: #9299ab;
 }
 .agent-avatar {
   display: grid;
