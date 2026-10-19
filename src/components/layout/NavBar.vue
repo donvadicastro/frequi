@@ -122,6 +122,12 @@ const navItems = computed<NavItem[]>(() => [
     icon: 'i-mdi-chart-line',
   },
   {
+    label: 'Strategy journal',
+    to: '/strategy_journal',
+    visible: !botStore.canRunBacktest,
+    icon: 'i-mdi-message-text-outline',
+  },
+  {
     label: 'Logs',
     to: '/logs',
     icon: 'i-mdi-format-list-bulleted',

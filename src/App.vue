@@ -1,6 +1,14 @@
 <script setup lang="ts">
+const route = useRoute();
 const settingsStore = useSettingsStore();
 const colorStore = useColorStore();
+watch(
+  [() => route.path, () => settingsStore.isDarkTheme],
+  ([path, isDark]) => {
+    document.documentElement.classList.toggle('dark', path !== '/' && isDark);
+  },
+  { immediate: true },
+);
 onMounted(() => {
   setTimezone(settingsStore.timezone);
   colorStore.updateProfitLossColor();
@@ -17,9 +25,9 @@ watch(
 <template>
   <UApp>
     <div id="app" class="flex flex-col h-dvh" :style="colorStore.cssVars">
-      <NavBar />
+      <NavBar v-if="route.path !== '/'" />
       <BodyLayout class="grow overflow-auto" />
-      <NavFooter />
+      <NavFooter v-if="route.path !== '/'" />
     </div>
   </UApp>
 </template>

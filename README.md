@@ -27,10 +27,10 @@ You'll need to correctly configure [CORS](https://www.freqtrade.io/en/stable/res
 
 ## Developer project setup
 
-It will require [freqtrade](https://github.com/freqtrade/freqtrade) to be running on the same host with the API enabled under (`localhost:8080`). You can either use the webpack proxy (port can be changed in `vue.config.js`) - or connect directly to the API (recommended).
+It will require [freqtrade](https://github.com/freqtrade/freqtrade) to be running with its API enabled. The development proxy defaults to `http://127.0.0.1:8081` and can be configured with `FREQTRADE_API_URL`. You can also connect directly to the API.
 
 You will also have to have CORS for freqtrade configured correctly based on the [freqtrade documentation](https://www.freqtrade.io/en/stable/rest-api/#cors).
-Most likely, the correct entry will be `http://localhost:3000` or `http://127.0.0.1:3000` - but the URL must match the URL you use to access FreqUI.
+Most likely, the correct entry will be `http://localhost:8080` or `http://127.0.0.1:8080` - but the URL must match the URL you use to access FreqUI.
 Ports can vary, so check the URL you're using.
 
 ### Project setup
@@ -44,6 +44,10 @@ pnpm install
 ```
 pnpm run dev
 ```
+
+The local app runs at `http://127.0.0.1:8080`. Its `/api` proxy targets
+`http://127.0.0.1:8081`; set `FREQTRADE_API_URL` to use another bot API address,
+for example `FREQTRADE_API_URL=http://127.0.0.1:8090 pnpm run dev`.
 
 ### Compiles and minifies for production
 

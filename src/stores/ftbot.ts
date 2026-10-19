@@ -67,7 +67,8 @@ import type {
 import { BacktestSteps, LoadingStatus, RunModes, TimeSummaryOptions } from '@/types';
 import type { FTWsMessage } from '@/types/wsMessageTypes';
 import { FtWsMessageTypes } from '@/types/wsMessageTypes';
-import { useWebSocket } from '@vueuse/core';
+import { useStorage, useWebSocket } from '@vueuse/core';
+import { strategyMessagePost, type StrategyPost } from '@/utils/strategyJournal';
 
 import { evaluateFeatures } from '@/utils/features';
 
@@ -78,6 +79,21 @@ export function createBotSubStore(botId: string, botName: string) {
   const { showAlert } = useAlertForBot(botName);
 
   const useBotStore = defineStore(botId, () => {
+    const journalStorageError = ref(false);
+    const journalPosts = useStorage<StrategyPost[]>(
+      computed(() => `strategy-journal:${loginInfo.baseUrl.value}`),
+      [],
+      undefined,
+      {
+        onError: () => {
+          journalStorageError.value = true;
+        },
+      },
+    );
+    function recordJournalPost(post: StrategyPost) {
+      if (journalPosts.value.some((item) => item.id === post.id)) return;
+      journalPosts.value = [...journalPosts.value, post];
+    }
     const isSelected = ref(true);
     const ping = ref('');
     const botStatusAvailable = ref(false);
@@ -387,6 +403,34 @@ export function createBotSubStore(botId: string, botName: string) {
         console.error(error);
         return Promise.reject(error);
       }
+    }
+
+    /** Read historical closes without changing the interactive chart's candle state. */
+    async function getAllocationCandles(pair: string, timerange: string): Promise<PairHistory> {
+      const payload = {
+        pair,
+        timerange,
+        timeframe: timeframe.value || '1h',
+        strategy: botState.value.strategy,
+      };
+      // Running bots expose their analysed candle cache; disk-history analysis
+      // is restricted to webserver mode by Freqtrade.
+      if (!isWebserverMode.value) {
+        const candles = { pair, timeframe: payload.timeframe, limit: 10000 };
+        return botFeatures.value.reducedPairCalls
+          ? api<PairHistory>('/pair_candles', {
+              method: 'POST',
+              body: { ...candles, columns: ['__date_ts', 'close'] },
+            })
+          : api<PairHistory>('/pair_candles', { query: candles });
+      }
+      return botFeatures.value.reducedPairCalls
+        ? api<PairHistory>('/pair_history', {
+            method: 'POST',
+            body: { ...payload, columns: ['__date_ts', 'close'], live_mode: false },
+            timeout: 120000,
+          })
+        : api<PairHistory>('/pair_history', { query: payload, timeout: 120000 });
     }
 
     async function getPairHistory(payload: PairHistoryPayload) {
@@ -1356,6 +1400,17 @@ export function createBotSubStore(botId: string, botName: string) {
     function _handleWebsocketMessage(ws: WebSocket, event: MessageEvent<string>) {
       const msg: FTWsMessage = JSON.parse(event.data);
       switch (msg.type) {
+        case FtWsMessageTypes.strategyMessage:
+          if (typeof msg.msg === 'string') {
+            recordJournalPost(
+              strategyMessagePost(
+                msg.msg,
+                botState.value.strategy || 'Unknown strategy',
+                Date.now(),
+              ),
+            );
+          }
+          break;
         case FtWsMessageTypes.exception:
           showAlert(`WSException: ${msg.data}`, 'error');
           break;
@@ -1366,6 +1421,30 @@ export function createBotSubStore(botId: string, botName: string) {
         case FtWsMessageTypes.exitFill:
         case FtWsMessageTypes.exitCancel:
         case FtWsMessageTypes.entryCancel:
+          if (
+            msg.type === FtWsMessageTypes.entryCancel ||
+            msg.type === FtWsMessageTypes.exitCancel
+          ) {
+            const receivedAt = Date.now();
+            recordJournalPost({
+              id: `cancel:${crypto.randomUUID()}`,
+              strategy: botState.value.strategy || 'Unknown strategy',
+              pair: msg.pair,
+              timestamp: receivedAt,
+              receivedAt,
+              kind: 'cancellation',
+              title:
+                msg.type === FtWsMessageTypes.entryCancel
+                  ? 'Entry order cancelled'
+                  : 'Exit order cancelled',
+              message: msg.reason || 'No cancellation reason supplied',
+              source: 'live event',
+            });
+          }
+          void getOpenTrades();
+          void getTrades().catch(() => {
+            /* Normal refresh will retry. */
+          });
           showNotification(msg, botName);
           break;
         case FtWsMessageTypes.newCandle: {
@@ -1416,6 +1495,7 @@ export function createBotSubStore(botId: string, botName: string) {
             if (isWebserverMode.value !== true) {
               websocketStarted.value = true;
               const subscriptions = [
+                FtWsMessageTypes.strategyMessage,
                 FtWsMessageTypes.whitelist,
                 FtWsMessageTypes.entryFill,
                 FtWsMessageTypes.exitFill,
@@ -1448,6 +1528,8 @@ export function createBotSubStore(botId: string, botName: string) {
     // #endregion websocket handling
 
     return {
+      journalPosts,
+      journalStorageError,
       websocketStarted,
       isSelected,
       ping,
@@ -1540,6 +1622,7 @@ export function createBotSubStore(botId: string, botName: string) {
       deleteLock,
       getPairCandles,
       getPairHistory,
+      getAllocationCandles,
       getStrategyPlotConfig,
       getStrategyList,
       getStrategy,

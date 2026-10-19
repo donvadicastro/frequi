@@ -31,13 +31,14 @@ const botStore = useBotStore();
     />
     <div
       v-if="botStore.activeBot.detailTradeId && botStore.activeBot.tradeDetail"
-      class="flex flex-col"
+      class="flex flex-col max-w-[1120px] mx-auto"
     >
       <UButton
         color="neutral"
-        class="self-start my-1 ms-1"
+        variant="ghost"
+        class="self-start my-1"
         @click="botStore.activeBot.setDetailTrade(null)"
-        label="Back"
+        label="Back to positions"
         icon="mdi:arrow-left"
       />
       <TradeDetail
