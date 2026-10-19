@@ -35,9 +35,9 @@ test('Empty workspace offers a real account connection', async ({ page }) => {
   ).toBeVisible();
   await expect(page.getByRole('region', { name: 'Live summary', exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Dry-run summary', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Portfolio', exact: true }).click();
+  await page.getByRole('button', { name: 'Portfolio live', exact: true }).click();
   await expect(page.getByText('No live strategies connected.')).toBeVisible();
-  await page.getByRole('tab', { name: /Dry-run/ }).click();
+  await page.getByRole('button', { name: 'Portfolio dry-run', exact: true }).click();
   await expect(page.getByText('No dry-run strategies connected.')).toBeVisible();
   await page.getByRole('button', { name: 'Conversation', exact: true }).click();
   await page.getByRole('link', { name: 'Connect your first strategy' }).click();
@@ -369,11 +369,15 @@ test('Commons keeps live and dry-run summaries, wallet history, holdings and act
   await page.getByRole('textbox', { name: 'Find an agent' }).fill('LiveBot');
   await expect(dryRun.getByRole('article').nth(2)).toContainText('2,000 USDT');
   await page.getByRole('textbox', { name: 'Find an agent' }).clear();
-  await page.getByRole('button', { name: 'Portfolio', exact: true }).click();
-  const panel = page.getByRole('tabpanel');
+  await page.getByRole('button', { name: 'Portfolio live', exact: true }).click();
+  const panel = page.locator('.agent-content');
   const activity = panel.getByRole('region', { name: 'Strategy activity' });
   const allocation = panel.getByRole('list', { name: 'Latest allocation percentages' });
-  await expect(page.getByRole('tab', { name: /Live/ })).toHaveAttribute('aria-selected', 'true');
+  await expect(
+    page
+      .getByRole('navigation', { name: 'Agent views' })
+      .getByRole('button', { name: 'Portfolio live', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true');
   await expect(panel.getByRole('heading', { name: 'Live portfolio', exact: true })).toBeVisible();
   await expect(panel.locator('.history-stats dd').nth(1)).toContainText('1,000 USDT');
   await expect(activity).toContainText('LiveBot');
@@ -381,7 +385,10 @@ test('Commons keeps live and dry-run summaries, wallet history, holdings and act
   await expect(activity).not.toContainText('UnknownBot');
   await expect(allocation).toContainText('BTC: 30.00%');
   await expect(allocation).not.toContainText('ETH');
-  await page.getByRole('tab', { name: /Dry-run/ }).click();
+  await page
+    .getByRole('navigation', { name: 'Agent views' })
+    .getByRole('button', { name: 'Portfolio dry-run', exact: true })
+    .click();
   await expect(
     panel.getByRole('heading', { name: 'Dry-run portfolio', exact: true }),
   ).toBeVisible();
@@ -391,15 +398,8 @@ test('Commons keeps live and dry-run summaries, wallet history, holdings and act
   await expect(activity).not.toContainText('UnknownBot');
   await expect(allocation).toContainText('ETH: 15.00%');
   await expect(allocation).not.toContainText('BTC');
-  await page.getByRole('tab', { name: /Dry-run/ }).press('ArrowLeft');
-  await expect(page.getByRole('tab', { name: /Live/ })).toBeFocused();
+  await expect(panel.getByRole('tablist')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Portfolio live', exact: true }).click();
   await expect(panel.getByRole('heading', { name: 'Live portfolio', exact: true })).toBeVisible();
-  await page.getByRole('tab', { name: /Live/ }).press('End');
-  await expect(page.getByRole('tab', { name: /Dry-run/ })).toBeFocused();
-  await page.reload();
-  await page.getByRole('button', { name: 'Portfolio', exact: true }).click();
-  await expect(page.getByRole('tab', { name: /Dry-run/ })).toHaveAttribute('aria-selected', 'true');
-  await expect(
-    panel.getByRole('heading', { name: 'Dry-run portfolio', exact: true }),
-  ).toBeVisible();
+  await expect(allocation).toContainText('BTC: 30.00%');
 });

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useStorage } from '@vueuse/core';
 import { tradeJournal } from '@/utils/strategyJournal';
-import { tradingMode, tradingModes, type TradingMode } from '@/utils/tradingMode';
+import { tradingMode, tradingModes } from '@/utils/tradingMode';
 import { defineComponent, h, type Component } from 'vue';
 import WorkspaceIcon0 from '~icons/mdi/account-multiple-outline';
 import WorkspaceIcon1 from '~icons/mdi/chart-box-outline';
@@ -102,21 +102,7 @@ const visibleMessages = computed(() =>
 );
 const activityLimit = ref(10);
 const activityError = ref('');
-const portfolioMode = useStorage<TradingMode>('frequi-commons-portfolio-mode', 'live');
-function navigatePortfolioMode(event: KeyboardEvent) {
-  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-  event.preventDefault();
-  portfolioMode.value =
-    event.key === 'Home'
-      ? 'live'
-      : event.key === 'End'
-        ? 'dry_run'
-        : portfolioMode.value === 'live'
-          ? 'dry_run'
-          : 'live';
-  const tabs = event.currentTarget as HTMLElement;
-  tabs.querySelector<HTMLButtonElement>(`#portfolio-tab-${portfolioMode.value}`)?.focus();
-}
+const portfolioMode = computed(() => (tab.value === 'Portfolio dry-run' ? 'dry_run' : 'live'));
 const modeGroups = computed(() =>
   tradingModes.map((mode) => ({
     ...mode,
@@ -353,9 +339,10 @@ watch(
       </header>
       <nav class="channel-tabs" aria-label="Agent views">
         <button
-          v-for="item in active ? tabs : ['Conversation', 'Portfolio']"
+          v-for="item in active ? tabs : ['Conversation', 'Portfolio live', 'Portfolio dry-run']"
           :key="item"
           :class="{ active: tab === item }"
+          :aria-pressed="tab === item"
           @click="tab = item"
         >
           <WorkspaceIcon
@@ -515,81 +502,50 @@ watch(
           </div>
         </form>
       </div>
-      <section v-else-if="tab === 'Portfolio'" :key="space + tab" class="agent-content">
-        <div
-          v-if="!active"
-          class="portfolio-modes"
-          role="tablist"
-          aria-label="Portfolio mode"
-          @keydown="navigatePortfolioMode"
+      <section v-else-if="tab.startsWith('Portfolio')" :key="space + tab" class="agent-content">
+        <WorkspacePortfolio
+          :key="active ? space : portfolioMode"
+          :bot-id="active ? space : undefined"
+          :mode="active ? undefined : portfolioMode"
         >
-          <button
-            v-for="group in modeGroups"
-            :id="`portfolio-tab-${group.key}`"
-            :key="group.key"
-            type="button"
-            role="tab"
-            :aria-selected="portfolioMode === group.key"
-            :tabindex="portfolioMode === group.key ? 0 : -1"
-            aria-controls="commons-portfolio"
-            @click="portfolioMode = group.key"
-          >
-            <span class="mode-dot" :class="group.key" />{{ group.label
-            }}<span class="mode-count">{{ group.members.length }}</span>
-          </button>
-        </div>
-        <div
-          :id="active ? undefined : 'commons-portfolio'"
-          :role="active ? undefined : 'tabpanel'"
-          :aria-labelledby="active ? undefined : `portfolio-tab-${portfolioMode}`"
-        >
-          <WorkspacePortfolio
-            :key="active ? space : portfolioMode"
-            :bot-id="active ? space : undefined"
-            :mode="active ? undefined : portfolioMode"
-          >
-            <section class="strategy-activity" aria-label="Strategy activity">
-              <div
-                class="activity-heading flex flex-wrap flex-row mb-2 justify-end items-center gap-2"
-              >
-                <h2 class="text-xl font-normal ms-1 me-auto mb-0">
-                  Strategy Activity
-                  <span class="text-xs text-muted ms-2">{{ activityPosts.length }} events</span>
-                </h2>
-                <RouterLink to="/strategy_journal">Search and export history →</RouterLink>
-              </div>
-              <p class="activity-caption">
-                Newest first · UTC · Trade reasons come from recorded tags. Signal updates are saved
-                in this browser while connected.
-              </p>
-              <p v-if="activityError" class="activity-caption">{{ activityError }}</p>
-              <p
-                v-if="activityBots.some((bot) => bot.journalStorageError)"
-                class="activity-caption"
-              >
-                Browser storage is unavailable. Export history to preserve live posts.
-              </p>
-              <p v-if="!activityPosts.length" class="activity-empty">
-                No recorded fills or strategy updates yet. Threshold alerts appear when the strategy
-                sends them.
-                <RouterLink to="/strategy_journal">View setup instructions →</RouterLink>
-              </p>
-              <StrategyActivityRow
-                v-for="post in shownActivity"
-                :key="post.key"
-                :post="post"
-                :author="active ? undefined : post.botName"
-              />
-              <button
-                v-if="activityPosts.length > activityLimit"
-                class="activity-more"
-                @click="activityLimit += 10"
-              >
-                Load more
-              </button>
-            </section>
-          </WorkspacePortfolio>
-        </div>
+          <section class="strategy-activity" aria-label="Strategy activity">
+            <div
+              class="activity-heading flex flex-wrap flex-row mb-2 justify-end items-center gap-2"
+            >
+              <h2 class="text-xl font-normal ms-1 me-auto mb-0">
+                Strategy Activity
+                <span class="text-xs text-muted ms-2">{{ activityPosts.length }} events</span>
+              </h2>
+              <RouterLink to="/strategy_journal">Search and export history →</RouterLink>
+            </div>
+            <p class="activity-caption">
+              Newest first · UTC · Trade reasons come from recorded tags. Signal updates are saved
+              in this browser while connected.
+            </p>
+            <p v-if="activityError" class="activity-caption">{{ activityError }}</p>
+            <p v-if="activityBots.some((bot) => bot.journalStorageError)" class="activity-caption">
+              Browser storage is unavailable. Export history to preserve live posts.
+            </p>
+            <p v-if="!activityPosts.length" class="activity-empty">
+              No recorded fills or strategy updates yet. Threshold alerts appear when the strategy
+              sends them.
+              <RouterLink to="/strategy_journal">View setup instructions →</RouterLink>
+            </p>
+            <StrategyActivityRow
+              v-for="post in shownActivity"
+              :key="post.key"
+              :post="post"
+              :author="active ? undefined : post.botName"
+            />
+            <button
+              v-if="activityPosts.length > activityLimit"
+              class="activity-more"
+              @click="activityLimit += 10"
+            >
+              Load more
+            </button>
+          </section>
+        </WorkspacePortfolio>
       </section>
       <section v-else-if="active" :key="space + tab" class="agent-content">
         <ChartView v-if="tab === 'Charts'" /><MobileTradesList v-else-if="tab === 'Orders'" />
@@ -610,31 +566,6 @@ watch(
   font-weight: 600;
   margin-bottom: 10px;
 }
-.portfolio-modes {
-  display: flex;
-  gap: 8px;
-  max-width: 1120px;
-  margin: 0 auto 24px;
-  border-bottom: 1px solid var(--ui-border);
-}
-.portfolio-modes button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  font-size: 13px;
-  border-bottom: 2px solid transparent;
-  color: var(--ui-text-muted);
-}
-.portfolio-modes button[aria-selected='true'] {
-  border-color: #637acb;
-  color: var(--ui-text-highlighted);
-}
-.mode-count {
-  font-size: 11px;
-  color: var(--ui-text-muted);
-}
-
 .workspace {
   display: flex;
   height: 100%;
