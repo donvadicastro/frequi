@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import type { WalletHistoryPerBot } from '@/types';
 import { aggregateWalletHistory } from '@/utils/portfolioHistory';
-const props = defineProps<{ botId?: string }>();
+import { tradingMode, type TradingMode } from '@/utils/tradingMode';
+const props = defineProps<{ botId?: string; mode?: TradingMode }>();
 const bots = useBotStore();
 const loading = ref(false);
 const view = ref('total');
 const stores = computed(() =>
-  props.botId ? [bots.botStores[props.botId]].filter((bot) => !!bot) : bots.allBotStores,
+  props.botId
+    ? [bots.botStores[props.botId]].filter((bot) => !!bot)
+    : bots.allBotStores.filter((bot) => !props.mode || tradingMode(bot.botState) === props.mode),
 );
 const groups = computed(() => {
   const currencies = [...new Set(stores.value.map((bot) => bot.stakeCurrency).filter(Boolean))];
@@ -60,9 +63,26 @@ watch(
   <div class="portfolio-history">
     <header class="history-header">
       <div>
-        <h2>Portfolio over time</h2>
+        <h2>
+          {{
+            mode
+              ? mode === 'live'
+                ? 'Live portfolio'
+                : 'Dry-run portfolio'
+              : 'Portfolio over time'
+          }}
+        </h2>
         <p>
-          Historical wallet balances reported by {{ botId ? 'this strategy' : 'your strategies' }}.
+          Historical wallet balances reported by
+          {{
+            botId
+              ? 'this strategy'
+              : mode === 'live'
+                ? 'live strategies'
+                : mode === 'dry_run'
+                  ? 'dry-run strategies'
+                  : 'your strategies'
+          }}.
         </p>
       </div>
       <button type="button" :disabled="loading" @click="refresh">
@@ -142,7 +162,11 @@ watch(
       </p>
     </section>
     <div v-if="!stores.length" class="history-panel history-empty">
-      Connect a strategy to see its portfolio history.
+      {{
+        mode
+          ? `No ${mode === 'live' ? 'live' : 'dry-run'} strategies connected.`
+          : 'Connect a strategy to see its portfolio history.'
+      }}
       <RouterLink to="/login">Connect an agent →</RouterLink>
     </div>
     <div v-else-if="!groups.length" class="history-panel history-empty">

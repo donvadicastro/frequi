@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useStorage } from '@vueuse/core';
 import { tradeJournal } from '@/utils/strategyJournal';
+import { tradingMode, tradingModes, type TradingMode } from '@/utils/tradingMode';
 import { defineComponent, h, type Component } from 'vue';
 import WorkspaceIcon0 from '~icons/mdi/account-multiple-outline';
 import WorkspaceIcon1 from '~icons/mdi/chart-box-outline';
@@ -70,10 +71,8 @@ watch(search, () => {
 function isGroupExpanded(key: string) {
   return search.value.trim() ? (searchGroups.value[key] ?? true) : expandedGroups.value[key];
 }
-function agentMode(botId: string): 'live' | 'dry_run' | 'unknown' {
-  const config = bots.botStores[botId]?.botState;
-  if (config?.runmode === 'webserver' || typeof config?.dry_run !== 'boolean') return 'unknown';
-  return config.dry_run ? 'dry_run' : 'live';
+function agentMode(botId: string) {
+  return tradingMode(bots.botStores[botId]?.botState);
 }
 const agentGroups = computed(() => [
   {
@@ -103,7 +102,32 @@ const visibleMessages = computed(() =>
 );
 const activityLimit = ref(10);
 const activityError = ref('');
-const activityBots = computed(() => (active.value ? [active.value] : bots.allBotStores));
+const portfolioMode = useStorage<TradingMode>('frequi-commons-portfolio-mode', 'live');
+function navigatePortfolioMode(event: KeyboardEvent) {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  event.preventDefault();
+  portfolioMode.value =
+    event.key === 'Home'
+      ? 'live'
+      : event.key === 'End'
+        ? 'dry_run'
+        : portfolioMode.value === 'live'
+          ? 'dry_run'
+          : 'live';
+  const tabs = event.currentTarget as HTMLElement;
+  tabs.querySelector<HTMLButtonElement>(`#portfolio-tab-${portfolioMode.value}`)?.focus();
+}
+const modeGroups = computed(() =>
+  tradingModes.map((mode) => ({
+    ...mode,
+    members: bots.allBotStores.filter((bot) => tradingMode(bot.botState) === mode.key),
+  })),
+);
+const activityBots = computed(() =>
+  active.value
+    ? [active.value]
+    : modeGroups.value.find((group) => group.key === portfolioMode.value)!.members,
+);
 const activityPosts = computed(() =>
   activityBots.value
     .flatMap((bot) =>
@@ -120,37 +144,48 @@ const activityPosts = computed(() =>
 );
 const shownActivity = computed(() => activityPosts.value.slice(0, activityLimit.value));
 watch(
-  [space, () => bots.botCount],
-  async () => {
+  [space, () => activityBots.value.map((bot) => bot.botId).join(','), portfolioMode],
+  async (_values, _oldValues, onCleanup) => {
+    let current = true;
+    onCleanup(() => {
+      current = false;
+    });
     activityLimit.value = 10;
     activityError.value = '';
     const result = await Promise.allSettled(
       activityBots.value.flatMap((bot) => [bot.getTrades(), bot.getBalance()]),
     );
-    if (result.some((item) => item.status === 'rejected')) {
+    if (current && result.some((item) => item.status === 'rejected')) {
       activityError.value = 'Some trade history could not be loaded. Showing available events.';
     }
   },
   { immediate: true },
 );
-const currencies = computed(() => [
-  ...new Set(bots.allBotStores.map((bot) => bot.stakeCurrency).filter(Boolean)),
-]);
-const totals = computed(() =>
-  currencies.value.map((currency) => {
-    const group = bots.allBotStores.filter((bot) => bot.stakeCurrency === currency);
-    return {
-      currency,
-      balance: group.reduce(
-        (sum, bot) => sum + (bot.balance.total_bot ?? bot.balance.total ?? 0),
-        0,
-      ),
-      profit: group.reduce((sum, bot) => sum + (bot.profit?.profit_all_coin ?? 0), 0),
-    };
-  }),
-);
-const openCount = computed(() =>
-  bots.allBotStores.reduce((sum, bot) => sum + bot.openTradeCount, 0),
+const snapshots = computed(() => {
+  const groups = active.value
+    ? [{ key: 'agent', label: 'Agent snapshot', members: [active.value] }]
+    : modeGroups.value;
+  return groups.map((group) => ({
+    ...group,
+    online: group.members.filter((bot) => bot.isBotOnline).length,
+    openCount: group.members.reduce((sum, bot) => sum + bot.openTradeCount, 0),
+    totals: [...new Set(group.members.map((bot) => bot.stakeCurrency).filter(Boolean))].map(
+      (currency) => {
+        const members = group.members.filter((bot) => bot.stakeCurrency === currency);
+        return {
+          currency,
+          balance: members.reduce(
+            (sum, bot) => sum + (bot.balance.total_bot ?? bot.balance.total ?? 0),
+            0,
+          ),
+          profit: members.reduce((sum, bot) => sum + (bot.profit?.profit_all_coin ?? 0), 0),
+        };
+      },
+    ),
+  }));
+});
+const unclassifiedCount = computed(
+  () => bots.allBotStores.filter((bot) => tradingMode(bot.botState) === 'unknown').length,
 );
 function selectSpace(id: string) {
   space.value = id;
@@ -335,7 +370,7 @@ watch(
             "
           />{{ item }}</button
         ><span class="scope-label">{{
-          active ? 'Individual strategy' : 'All agents · aggregate view'
+          active ? 'Individual strategy' : 'Live and dry-run portfolios'
         }}</span>
       </nav>
       <div v-if="tab === 'Conversation'" class="conversation">
@@ -344,55 +379,74 @@ watch(
             <h2>{{ active ? 'Agent snapshot' : 'Workspace at a glance' }}</h2>
             <span>Connected bot data</span>
           </div>
-          <div class="metrics">
-            <article>
-              <span>{{ active ? 'Strategy' : 'Connected agents' }}</span
-              ><strong>{{ active ? active.botState.strategy || '—' : bots.botCount }}</strong
-              ><small>{{
-                active
-                  ? active.isBotOnline
-                    ? 'Online'
-                    : 'Offline'
-                  : `${bots.allBotStores.filter((bot) => bot.isBotOnline).length} online`
-              }}</small>
-            </article>
-            <article>
-              <span>Open positions</span
-              ><strong>{{ active ? active.openTradeCount : openCount }}</strong
-              ><small>Across {{ active ? 'this agent' : 'your strategies' }}</small>
-            </article>
-            <article>
-              <span>Portfolio value</span
-              ><strong v-if="active"
-                >{{
-                  active.balance.total_bot !== undefined || active.balance.total !== undefined
-                    ? money(active.balance.total_bot ?? active.balance.total)
-                    : '—'
-                }}
-                <em>{{ active.stakeCurrency }}</em></strong
-              ><template v-else-if="totals.length"
-                ><strong v-for="total in totals" :key="total.currency"
-                  >{{ money(total.balance) }} <em>{{ total.currency }}</em></strong
-                ></template
-              ><strong v-else>—</strong><small>Reported bot balances</small>
-            </article>
-            <article>
-              <span>Total P&amp;L</span
-              ><strong
-                v-if="active"
-                :class="{ positive: (active.profit?.profit_all_coin ?? 0) > 0 }"
-                >{{ active.profit ? money(active.profit.profit_all_coin) : '—' }}
-                <em>{{ active.stakeCurrency }}</em></strong
-              ><template v-else-if="totals.length"
+          <section
+            v-for="snapshot in snapshots"
+            :key="snapshot.key"
+            class="mode-snapshot"
+            :aria-label="active ? 'Agent snapshot' : `${snapshot.label} summary`"
+          >
+            <h3 v-if="!active" class="mode-title">
+              <span class="mode-dot" :class="snapshot.key" />{{ snapshot.label }}
+            </h3>
+            <div class="metrics">
+              <article>
+                <span>{{ active ? 'Strategy' : 'Connected agents' }}</span
+                ><strong>{{
+                  active ? active.botState.strategy || '—' : snapshot.members.length
+                }}</strong
+                ><small>{{
+                  active ? (active.isBotOnline ? 'Online' : 'Offline') : `${snapshot.online} online`
+                }}</small>
+              </article>
+              <article>
+                <span>Open positions</span><strong>{{ snapshot.openCount }}</strong
+                ><small
+                  >Across
+                  {{ active ? 'this agent' : `${snapshot.label.toLowerCase()} strategies` }}</small
+                >
+              </article>
+              <article>
+                <span>Portfolio value</span
+                ><strong v-if="active"
+                  >{{
+                    active.balance.total_bot !== undefined || active.balance.total !== undefined
+                      ? money(active.balance.total_bot ?? active.balance.total)
+                      : '—'
+                  }}
+                  <em>{{ active.stakeCurrency }}</em></strong
+                ><template v-else-if="snapshot.totals.length"
+                  ><strong v-for="total in snapshot.totals" :key="total.currency"
+                    >{{ money(total.balance) }} <em>{{ total.currency }}</em></strong
+                  ></template
+                ><strong v-else>—</strong><small>Reported bot balances</small>
+              </article>
+              <article>
+                <span>Total P&amp;L</span
                 ><strong
-                  v-for="total in totals"
-                  :key="total.currency"
-                  :class="{ positive: total.profit > 0 }"
-                  >{{ money(total.profit) }} <em>{{ total.currency }}</em></strong
-                ></template
-              ><strong v-else>—</strong><small>Realized + unrealized</small>
-            </article>
-          </div>
+                  v-if="active"
+                  :class="{ positive: (active.profit?.profit_all_coin ?? 0) > 0 }"
+                  >{{ active.profit ? money(active.profit.profit_all_coin) : '—' }}
+                  <em>{{ active.stakeCurrency }}</em></strong
+                ><template v-else-if="snapshot.totals.length"
+                  ><strong
+                    v-for="total in snapshot.totals"
+                    :key="total.currency"
+                    :class="{ positive: total.profit > 0 }"
+                    >{{ money(total.profit) }} <em>{{ total.currency }}</em></strong
+                  ></template
+                ><strong v-else>—</strong><small>Realized + unrealized</small>
+              </article>
+            </div>
+          </section>
+          <p v-if="!active && unclassifiedCount" class="activity-caption">
+            {{ unclassifiedCount }}
+            {{
+              unclassifiedCount === 1
+                ? 'strategy with unavailable trading mode is'
+                : 'strategies with unavailable trading mode are'
+            }}
+            excluded from these totals.
+          </p>
         </section>
         <div class="day-divider"><span>Workspace conversation</span></div>
         <div class="welcome-message">
@@ -406,7 +460,7 @@ watch(
               {{
                 active
                   ? 'Follow executions, recorded reasons, and signal updates in the Portfolio tab.'
-                  : 'Keep the big picture in view. Each strategy has its own space, while agent-commons brings the whole portfolio together.'
+                  : 'Keep the big picture in view. Each strategy has its own space, while agent-commons shows separate live and dry-run portfolios.'
               }}
             </p>
             <div class="welcome-note">
@@ -462,44 +516,80 @@ watch(
         </form>
       </div>
       <section v-else-if="tab === 'Portfolio'" :key="space + tab" class="agent-content">
-        <WorkspacePortfolio :bot-id="active ? space : undefined">
-          <section class="strategy-activity" aria-label="Strategy activity">
-            <div
-              class="activity-heading flex flex-wrap flex-row mb-2 justify-end items-center gap-2"
-            >
-              <h2 class="text-xl font-normal ms-1 me-auto mb-0">
-                Strategy Activity
-                <span class="text-xs text-muted ms-2">{{ activityPosts.length }} events</span>
-              </h2>
-              <RouterLink to="/strategy_journal">Search and export history →</RouterLink>
-            </div>
-            <p class="activity-caption">
-              Newest first · UTC · Trade reasons come from recorded tags. Signal updates are saved
-              in this browser while connected.
-            </p>
-            <p v-if="activityError" class="activity-caption">{{ activityError }}</p>
-            <p v-if="activityBots.some((bot) => bot.journalStorageError)" class="activity-caption">
-              Browser storage is unavailable. Export history to preserve live posts.
-            </p>
-            <p v-if="!activityPosts.length" class="activity-empty">
-              No recorded fills or strategy updates yet. Threshold alerts appear when the strategy
-              sends them. <RouterLink to="/strategy_journal">View setup instructions →</RouterLink>
-            </p>
-            <StrategyActivityRow
-              v-for="post in shownActivity"
-              :key="post.key"
-              :post="post"
-              :author="active ? undefined : post.botName"
-            />
-            <button
-              v-if="activityPosts.length > activityLimit"
-              class="activity-more"
-              @click="activityLimit += 10"
-            >
-              Load more
-            </button>
-          </section>
-        </WorkspacePortfolio>
+        <div
+          v-if="!active"
+          class="portfolio-modes"
+          role="tablist"
+          aria-label="Portfolio mode"
+          @keydown="navigatePortfolioMode"
+        >
+          <button
+            v-for="group in modeGroups"
+            :id="`portfolio-tab-${group.key}`"
+            :key="group.key"
+            type="button"
+            role="tab"
+            :aria-selected="portfolioMode === group.key"
+            :tabindex="portfolioMode === group.key ? 0 : -1"
+            aria-controls="commons-portfolio"
+            @click="portfolioMode = group.key"
+          >
+            <span class="mode-dot" :class="group.key" />{{ group.label
+            }}<span class="mode-count">{{ group.members.length }}</span>
+          </button>
+        </div>
+        <div
+          :id="active ? undefined : 'commons-portfolio'"
+          :role="active ? undefined : 'tabpanel'"
+          :aria-labelledby="active ? undefined : `portfolio-tab-${portfolioMode}`"
+        >
+          <WorkspacePortfolio
+            :key="active ? space : portfolioMode"
+            :bot-id="active ? space : undefined"
+            :mode="active ? undefined : portfolioMode"
+          >
+            <section class="strategy-activity" aria-label="Strategy activity">
+              <div
+                class="activity-heading flex flex-wrap flex-row mb-2 justify-end items-center gap-2"
+              >
+                <h2 class="text-xl font-normal ms-1 me-auto mb-0">
+                  Strategy Activity
+                  <span class="text-xs text-muted ms-2">{{ activityPosts.length }} events</span>
+                </h2>
+                <RouterLink to="/strategy_journal">Search and export history →</RouterLink>
+              </div>
+              <p class="activity-caption">
+                Newest first · UTC · Trade reasons come from recorded tags. Signal updates are saved
+                in this browser while connected.
+              </p>
+              <p v-if="activityError" class="activity-caption">{{ activityError }}</p>
+              <p
+                v-if="activityBots.some((bot) => bot.journalStorageError)"
+                class="activity-caption"
+              >
+                Browser storage is unavailable. Export history to preserve live posts.
+              </p>
+              <p v-if="!activityPosts.length" class="activity-empty">
+                No recorded fills or strategy updates yet. Threshold alerts appear when the strategy
+                sends them.
+                <RouterLink to="/strategy_journal">View setup instructions →</RouterLink>
+              </p>
+              <StrategyActivityRow
+                v-for="post in shownActivity"
+                :key="post.key"
+                :post="post"
+                :author="active ? undefined : post.botName"
+              />
+              <button
+                v-if="activityPosts.length > activityLimit"
+                class="activity-more"
+                @click="activityLimit += 10"
+              >
+                Load more
+              </button>
+            </section>
+          </WorkspacePortfolio>
+        </div>
       </section>
       <section v-else-if="active" :key="space + tab" class="agent-content">
         <ChartView v-if="tab === 'Charts'" /><MobileTradesList v-else-if="tab === 'Orders'" />
@@ -509,6 +599,42 @@ watch(
 </template>
 
 <style scoped>
+.mode-snapshot + .mode-snapshot {
+  margin-top: 24px;
+}
+.mode-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.portfolio-modes {
+  display: flex;
+  gap: 8px;
+  max-width: 1120px;
+  margin: 0 auto 24px;
+  border-bottom: 1px solid var(--ui-border);
+}
+.portfolio-modes button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  border-bottom: 2px solid transparent;
+  color: var(--ui-text-muted);
+}
+.portfolio-modes button[aria-selected='true'] {
+  border-color: #637acb;
+  color: var(--ui-text-highlighted);
+}
+.mode-count {
+  font-size: 11px;
+  color: var(--ui-text-muted);
+}
+
 .workspace {
   display: flex;
   height: 100%;
